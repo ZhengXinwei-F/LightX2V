@@ -52,8 +52,8 @@ bash scripts/minimax_h3_image/run_minimax_h3_image_edit.sh   # examples/referenc
 
 | Configuration under `configs/minimax_h3_image/` | Mode |
 | --- | --- |
-| `minimax_h3_image.json` | One GPU, BF16 DiT resident, text encoder offloaded between requests |
-| `minimax_h3_image_block_offload.json` | One GPU, DiT and text encoder block offload |
+| `minimax_h3_image.json` | One GPU, BF16 DiT (66 GB) and VAE resident, text encoder streamed by block offload; for GPUs with more than 80 GB |
+| `minimax_h3_image_block_offload.json` | One GPU, DiT and text encoder block offload, VAE offloaded; for 80 GB GPUs |
 
 The configs use dense FlashAttention 3 and SGL kernels; choose operators that match the installed kernels.
 
