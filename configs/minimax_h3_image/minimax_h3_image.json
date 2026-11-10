@@ -2,7 +2,6 @@
   "size": [4096, 4096],
   "min_generation_area": 4194304,
   "enable_cfg": false,
-  "text_encoder_path": "/path/to/MiniMax-H3/text_encoder",
   "cpu_offload": false,
   "text_encoder_cpu_offload": true,
   "vae_cpu_offload": false,

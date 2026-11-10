@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# set paths first; also set text_encoder_path in the JSON config to the
-# text_encoder/ folder of MiniMaxAI/MiniMax-H3 (not shipped with the image release)
+# set paths first. The text encoder is read from ${model_path}/text_encoder; to use
+# the text_encoder/ folder of an existing MiniMax-H3 download instead, add
+# "text_encoder_path": "/path/to/MiniMax-H3/text_encoder" to the JSON config.
 lightx2v_path=/path/to/LightX2V
 model_path=/path/to/MiniMax-H3-Image
 

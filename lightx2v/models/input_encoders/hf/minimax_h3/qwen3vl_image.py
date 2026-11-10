@@ -59,11 +59,9 @@ class MiniMaxH3ImageQwen3VLTextEncoder(MiniMaxH3Qwen3VLTextEncoder):
     def _component_path(self, config_key, subfolder):
         path = super()._component_path(config_key, subfolder)
         if config_key == "text_encoder_path" and not os.path.isdir(path):
-            # The image release does not ship the conditioner; model_index.json
-            # loads it from MiniMaxAI/MiniMax-H3, folder text_encoder/.
-            raise FileNotFoundError(
-                f"MiniMax-H3-Image uses the MiniMax-H3 text encoder, which is not part of the image release. Set text_encoder_path to the text_encoder/ folder of MiniMaxAI/MiniMax-H3 (got {path})."
-            )
+            # model_index.json loads the conditioner from MiniMaxAI/MiniMax-H3,
+            # folder text_encoder/; a download may omit the image repo's copy.
+            raise FileNotFoundError(f"MiniMax-H3-Image text encoder not found at {path}. Set text_encoder_path to the text_encoder/ folder of MiniMaxAI/MiniMax-H3 (or of MiniMaxAI/MiniMax-H3-Image).")
         return path
 
     def _prepare_t2av_input_ids(self, prompt, device):

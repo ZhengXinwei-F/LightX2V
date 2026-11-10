@@ -55,6 +55,14 @@ def test_rng_order_only_changes_edits(tiny_release, tmp_path):
     assert not np.array_equal(_array(edit_a), _array(edit_b))
 
 
+def test_diffusers_layout_transformer_gives_the_same_image(tiny_release, tmp_path):
+    import os
+
+    native = run_tiny_pipeline(tiny_release, "i2i", str(tmp_path))
+    converted = run_tiny_pipeline(tiny_release, "i2i", str(tmp_path), overrides={"dit_original_ckpt": os.path.join(tiny_release, "transformer_diffusers")})
+    assert np.array_equal(_array(native), _array(converted))
+
+
 def test_small_request_is_generated_larger_and_resized(tiny_release, tmp_path):
     runner, _ = build_tiny_runner(tiny_release, "t2i", overrides={"min_generation_area": 160 * 160, "size": [64, 96]})
     result = runner.run_request(runner.prepare_request({"task": "t2i", "prompt": "a lighthouse", "seed": 0, "return_result_tensor": True}))

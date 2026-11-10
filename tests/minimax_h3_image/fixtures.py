@@ -174,6 +174,23 @@ def tiny_native_vae_state(config=TINY_VAE_CONFIG, seed=2):
     return native
 
 
+def _write_diffusers_layout_transformer(path, config, native_state, heads):
+    """The ``transformer_diffusers/`` folder: LightX2V names, PDD heads folded in."""
+    from lightx2v.models.networks.minimax_h3.image.checkpoint import convert_native_tensor, normalize_native_transformer_config
+
+    os.makedirs(path, exist_ok=True)
+    state = {}
+    for key, tensor in native_state.items():
+        state.update(convert_native_tensor(key, tensor, config["num_attention_heads"], config["attention_head_dim"]))
+    for step in range(heads["video_out.weight"].shape[0]):
+        state[f"pdd_proj_out.{step}.weight"] = heads["video_out.weight"][step].contiguous()
+        state[f"pdd_proj_out.{step}.bias"] = heads["video_out.bias"][step].contiguous()
+    save_file(state, os.path.join(path, "diffusion_pytorch_model.safetensors"))
+    diffusers_config = {key: value for key, value in normalize_native_transformer_config(config).items() if not key.startswith(("adaln_", "final_adaln_", "audio_"))}
+    with open(os.path.join(path, "config.json"), "w") as handle:
+        json.dump({"_class_name": "MiniMaxH3ImageTransformer2DModel", **diffusers_config, "num_pdd_heads": heads["video_out.weight"].shape[0]}, handle)
+
+
 def build_tiny_release(root, *, transformer_config=TINY_TRANSFORMER_CONFIG, vae_config=TINY_VAE_CONFIG):
     """Write a tiny MiniMax-H3-Image release under ``root`` and return its path."""
     root = os.path.join(root, "MiniMax-H3-Image-tiny")
@@ -190,7 +207,9 @@ def build_tiny_release(root, *, transformer_config=TINY_TRANSFORMER_CONFIG, vae_
     half = len(keys) // 2
     save_file({key: state[key] for key in keys[:half]}, os.path.join(root, "transformer", "model-00001-of-00002.safetensors"))
     save_file({key: state[key] for key in keys[half:]}, os.path.join(root, "transformer", "model-00002-of-00002.safetensors"))
-    save_file(tiny_pdd_heads(transformer_config), os.path.join(root, "pdd_fused_heads.safetensors"))
+    heads = tiny_pdd_heads(transformer_config)
+    save_file(heads, os.path.join(root, "pdd_fused_heads.safetensors"))
+    _write_diffusers_layout_transformer(os.path.join(root, "transformer_diffusers"), transformer_config, state, heads)
     with open(os.path.join(root, "vae", "config.json"), "w") as handle:
         json.dump(vae_config, handle)
     save_file(tiny_native_vae_state(vae_config), os.path.join(root, "vae", "diffusion_pytorch_model.safetensors"))

@@ -175,6 +175,16 @@ def test_vae_keys_and_shapes(release):
     assert len(config["latents_mean"]) == len(config["latents_std"]) == config["latent_channels"] == 24
 
 
+def test_diffusers_layout_transformer_uses_lightx2v_names(release):
+    try:
+        index = release.json("transformer_diffusers/diffusion_pytorch_model.safetensors.index.json")["weight_map"]
+    except (OSError, urllib.error.URLError, ValueError):
+        pytest.skip("the release has no transformer_diffusers/ folder")
+    config = {**normalize_native_transformer_config(release.json("transformer/config.json")), "attn_type": "torch_sdpa", "infer_steps": 6}
+    expected = _expected_weights([MiniMaxH3ImagePreWeights(config), MiniMaxH3TransformerWeights(config), MiniMaxH3ImagePostWeights(config)])
+    assert set(index) == expected
+
+
 def test_native_names_cover_every_released_key(transformer_header):
     for key in transformer_header:
         if key not in DROPPED_KEYS:
