@@ -17,8 +17,10 @@ import pytest  # noqa: E402
 
 
 def pytest_collection_modifyitems(config, items):
-    from lightx2v_platform.base.global_var import AI_DEVICE
+    import lightx2v  # noqa: F401  (binds AI_DEVICE)
+    from lightx2v_platform.base import global_var
 
+    AI_DEVICE = global_var.AI_DEVICE
     if AI_DEVICE == "cpu":
         return
     reason = f"lightx2v was imported with AI_DEVICE={AI_DEVICE!r} before the CPU platform; run `pytest tests/minimax_h3_image` on its own"
