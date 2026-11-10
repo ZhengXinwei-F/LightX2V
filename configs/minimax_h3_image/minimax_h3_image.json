@@ -1,0 +1,20 @@
+{
+  "size": [4096, 4096],
+  "min_generation_area": 4194304,
+  "enable_cfg": false,
+  "text_encoder_path": "/path/to/MiniMax-H3/text_encoder",
+  "cpu_offload": false,
+  "text_encoder_cpu_offload": true,
+  "vae_cpu_offload": false,
+  "attn_type": "flash_attn3",
+  "refiner_attn_type": "flash_attn3",
+  "rms_type": "sgl-kernel",
+  "rope_type": "minimax_h3_triton_rope",
+  "vae_attn_type": "torch_sdpa",
+  "vae_decode_dtype": "bf16",
+  "h3_image_step_update": "velocity",
+  "h3_image_rng_order": "diffusers",
+  "generator_device": "cpu",
+  "feature_caching": "NoCaching",
+  "use_compile": false
+}

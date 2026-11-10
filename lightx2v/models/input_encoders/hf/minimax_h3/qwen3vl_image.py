@@ -13,6 +13,8 @@ Only the presentation differs from the video release:
 The vision-block rows are tagged as image rows (tag 0) for the DiT's AdaLN.
 """
 
+import os
+
 import torch
 from PIL import Image
 
@@ -53,6 +55,16 @@ class MiniMaxH3ImageQwen3VLTextEncoder(MiniMaxH3Qwen3VLTextEncoder):
         bounds = config.get("reference_vision_short_edge", REFERENCE_VISION_SHORT_EDGE)
         self.vision_short_edge = (int(bounds[0]), int(bounds[1]))
         super().__init__(config)
+
+    def _component_path(self, config_key, subfolder):
+        path = super()._component_path(config_key, subfolder)
+        if config_key == "text_encoder_path" and not os.path.isdir(path):
+            # The image release does not ship the conditioner; model_index.json
+            # loads it from MiniMaxAI/MiniMax-H3, folder text_encoder/.
+            raise FileNotFoundError(
+                f"MiniMax-H3-Image uses the MiniMax-H3 text encoder, which is not part of the image release. Set text_encoder_path to the text_encoder/ folder of MiniMaxAI/MiniMax-H3 (got {path})."
+            )
+        return path
 
     def _prepare_t2av_input_ids(self, prompt, device):
         if not isinstance(prompt, str) or not prompt:
