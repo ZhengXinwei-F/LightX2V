@@ -244,6 +244,23 @@ def load_model_config(deployment_config):
         if os.path.exists(transformer_config_path):
             with open(transformer_config_path, "r") as f:
                 model_config.update(json.load(f))
+    elif model_cls == "minimax_h3_image":
+        from lightx2v.models.networks.minimax_h3.image.checkpoint import normalize_native_transformer_config, read_pdd_config, resolve_pdd_paths
+
+        transformer_path = deployment_config.get("dit_original_ckpt") or os.path.join(model_path, "transformer")
+        transformer_config_path = os.path.join(transformer_path, "config.json")
+        if not os.path.isfile(transformer_config_path):
+            raise FileNotFoundError(f"MiniMax-H3-Image transformer config not found: {transformer_config_path}")
+        with open(transformer_config_path, "r") as f:
+            model_config.update(normalize_native_transformer_config(json.load(f)))
+        if model_config.get("audio_enabled", False):
+            raise ValueError("MiniMax-H3-Image expects a transformer without the audio branch (audio_enabled=false)")
+        model_config["dit_original_ckpt"] = transformer_path
+        # The checkpoint has one output head per step of its PDD grid, so the
+        # step count and the sigmas come from pdd_config.json.
+        _, pdd_config_path = resolve_pdd_paths(model_path, deployment_config)
+        pdd_steps, pdd_sigmas = read_pdd_config(pdd_config_path)
+        model_config.update(infer_steps=pdd_steps, num_pdd_heads=pdd_steps, pdd_sigmas=pdd_sigmas)
     elif model_cls in ("minimax_h3", "minimax_h3_causal", "taomate_h3"):
         causal = model_cls == "minimax_h3_causal"
         if causal:
@@ -321,7 +338,7 @@ def load_model_config(deployment_config):
             model_config["vae_scale_factor_temporal"] = int(vae_config.get("scale_factor_temporal", 4))
             model_config["vae_scale_factor"] = model_config["vae_scale_factor_spatial"]
 
-    if model_cls in ("minimax_h3", "minimax_h3_causal", "taomate_h3", "streamrender_h3"):
+    if model_cls in ("minimax_h3", "minimax_h3_causal", "minimax_h3_image", "taomate_h3", "streamrender_h3"):
         # The generic Diffusers-VAE heuristic above counts six encoder stages
         # and would incorrectly derive 32. H3 downsamples space by exactly 16.
         model_config["vae_spatial_scale_factor"] = 16
