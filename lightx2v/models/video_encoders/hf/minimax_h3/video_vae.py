@@ -510,6 +510,7 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
         sensitive_layer_dtype: torch.dtype = torch.float32,
         use_compile: bool = False,
         attn_type: str = "torch_sdpa",
+        rope_num_axes: int = 3,
     ) -> None:
         super().__init__()
         dim = num_attention_heads * attention_head_dim
@@ -523,7 +524,7 @@ class MiniMaxH3VideoViTDecoder3d(nn.Module):
         self.compiled_blocks = {}
         self.block_offload_runner = None
 
-        self.rope = MiniMaxH3VideoRotaryPosEmbed(int(attention_head_dim * rope_dim_ratio), theta=rope_theta)
+        self.rope = MiniMaxH3VideoRotaryPosEmbed(int(attention_head_dim * rope_dim_ratio), theta=rope_theta, num_axes=rope_num_axes)
         self.proj_in = nn.Linear(in_channels, dim)
         self.register_tokens = nn.Parameter(torch.zeros(1, num_register_tokens, dim))
         self.transformer_blocks = nn.ModuleList(
