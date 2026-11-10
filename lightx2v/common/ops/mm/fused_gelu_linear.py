@@ -15,7 +15,11 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
-from triton.language.extra.cuda import libdevice
+
+try:
+    from triton.language.extra.cuda import libdevice
+except ImportError:  # non-CUDA Triton builds (e.g. MUSA) lack it; the FP8 GELU kernels are not used there
+    libdevice = None
 
 from lightx2v.common.ops.mm.fp8_f16_accum import validate_fp8_f16_accum_qmax
 from lightx2v.common.ops.mm.projection_group import _backend_apis_available, convrot_projection_mm
