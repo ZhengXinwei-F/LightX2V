@@ -25,7 +25,11 @@ following ``AutoencoderKLMiniMaxH3Image`` of Diffusers.
 Pixels are ImageNet-normalized RGB over ``[0, 1]``; latents are normalized
 with the per-channel ``latents_mean``/``latents_std`` of ``vae/config.json``.
 Encoding and decoding are tiled (256 px tiles, at least 64 px overlap) as in
-the release, which is what makes 16 MP images fit.
+the release, which is what makes 16 MP images fit. When the default
+``torch.distributed`` group has more than one rank, decode tiles are split into
+balanced contiguous blocks over its ranks, and every rank gathers all tiles and
+stitches the same full image (``vae_decode_parallel: false`` in the VAE config
+turns this off).
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ import re
 from pathlib import Path
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 from loguru import logger
 from safetensors import safe_open
@@ -45,6 +50,7 @@ from lightx2v.models.video_encoders.hf.minimax_h3.video_vae import (
     MINIMAX_H3_PIXEL_MEAN,
     MINIMAX_H3_PIXEL_STD,
     MiniMaxH3VideoEncoder3d,
+    MiniMaxH3VideoVAE,
     MiniMaxH3VideoViTDecoder3d,
     _component_dir,
     _empty_device_cache,
@@ -198,6 +204,9 @@ class MiniMaxH3ImageVAE(nn.Module):
 
         self.use_encoder_tiling = bool(config.get("vae_encoder_tiling", 1))
         self.use_decoder_tiling = bool(config.get("vae_decoder_tiling", 1))
+        # Every rank of a multi-rank image run decodes the same latents, so the
+        # tiles are split over the default group whenever it has several ranks.
+        self.decode_parallel = bool(config.get("vae_decode_parallel", True))
         self.tile_sample_size = int(config.get("vae_tile_size", 256))
         self.tile_sample_min_overlap = int(config.get("vae_tile_overlap_min", 64))
         for name in ("tile_sample_size", "tile_sample_min_overlap"):
@@ -348,6 +357,35 @@ class MiniMaxH3ImageVAE(nn.Module):
             result_rows.append(torch.cat(result_row, dim=-1))
         return torch.cat(result_rows, dim=-2)
 
+    # ---------------------------------------------------------------- parallel
+    def _use_decode_parallel(self) -> bool:
+        return self.decode_parallel and self.use_decoder_tiling and dist.is_available() and dist.is_initialized() and dist.get_world_size() > 1
+
+    @staticmethod
+    def _run_tiles(tiles: list[torch.Tensor], run, output_shape: tuple[int, ...], output_dtype: torch.dtype, parallel: bool) -> list[torch.Tensor]:
+        """Run ``run`` over equally shaped tiles, optionally split over all ranks.
+
+        In parallel mode each rank runs one balanced contiguous block of the
+        row-major tile list, then an all-gather returns every result to every
+        rank in the global order, so all ranks stitch the same output.
+        """
+        if not parallel or len(tiles) == 1:
+            return [run(tile) for tile in tiles]
+        rank = dist.get_rank()
+        world_size = dist.get_world_size()
+        task_counts = MiniMaxH3VideoVAE._balanced_task_counts(len(tiles), world_size)
+        local_start = sum(task_counts[:rank])
+        # Ranks past the last tile send a zero-filled block of the same size.
+        send_buffer = torch.zeros((max(task_counts), *output_shape), dtype=output_dtype, device=tiles[0].device)
+        for index, tile in enumerate(tiles[local_start : local_start + task_counts[rank]]):
+            output = run(tile)
+            if tuple(output.shape) != output_shape or output.dtype != output_dtype:
+                raise RuntimeError(f"MiniMax-H3-Image VAE tile output {tuple(output.shape)}/{output.dtype} differs from the expected {output_shape}/{output_dtype}")
+            send_buffer[index] = output
+        receive_buffers = [torch.empty_like(send_buffer) for _ in range(world_size)]
+        dist.all_gather(receive_buffers, send_buffer)
+        return [tile for buffer, count in zip(receive_buffers, task_counts) for tile in buffer[:count]]
+
     def _encode_tile(self, pixels: torch.Tensor) -> torch.Tensor:
         return self.quant_conv(self.encoder(pixels[:, :, None]))[:, :, -1]
 
@@ -361,20 +399,21 @@ class MiniMaxH3ImageVAE(nn.Module):
         ratio = self.spatial_compression_ratio
         return self._stitch_tiles(rows, [value // ratio for value in y_overlaps], [value // ratio for value in x_overlaps])
 
+    def _decode_tile(self, latents: torch.Tensor) -> torch.Tensor:
+        return self.decoder(self.post_quant_conv(latents))
+
     def _decode_pixels(self, latents: torch.Tensor) -> torch.Tensor:
         if not self.use_decoder_tiling:
-            return self.decoder(self.post_quant_conv(latents))
+            return self._decode_tile(latents)
         ratio = self.spatial_compression_ratio
         height, width = latents.shape[-2] * ratio, latents.shape[-1] * ratio
         y_starts, y_lengths, y_overlaps = self._split_tiles(height, self.tile_sample_size, self.tile_sample_min_overlap)
         x_starts, x_lengths, x_overlaps = self._split_tiles(width, self.tile_sample_size, self.tile_sample_min_overlap)
-        rows = []
-        for y, h in zip(y_starts, y_lengths):
-            row = []
-            for x, w in zip(x_starts, x_lengths):
-                tile = latents[..., y // ratio : (y + h) // ratio, x // ratio : (x + w) // ratio]
-                row.append(self.decoder(self.post_quant_conv(tile)))
-            rows.append(row)
+        tiles = [latents[..., y // ratio : (y + h) // ratio, x // ratio : (x + w) // ratio] for y, h in zip(y_starts, y_lengths) for x, w in zip(x_starts, x_lengths)]
+        # The decoder returns its projections' dtype (the decode dtype).
+        output_shape = (latents.shape[0], self.decoder.out_channels, y_lengths[0], x_lengths[0])
+        tiles = self._run_tiles(tiles, self._decode_tile, output_shape, self.decoder.infer_dtype, self._use_decode_parallel())
+        rows = [tiles[index : index + len(x_starts)] for index in range(0, len(tiles), len(x_starts))]
         return self._stitch_tiles(rows, y_overlaps, x_overlaps)
 
     # ---------------------------------------------------------------- residency
